@@ -26,6 +26,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from pathlib import Path
+
+# 检查前端构建产物是否存在
+frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
+if frontend_dist.exists():
+    app.mount("/assets", StaticFiles(directory=frontend_dist / "assets"), name="assets")
+
+@app.get("/")
+async def serve_index():
+    # 尝试返回前端 index.html
+    index_path = frontend_dist / "index.html"
+    if index_path.exists():
+        return FileResponse(index_path)
+    return {"message": "RAG Web API is running, but frontend not built yet."}
+
 engine = RAGEngine()
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".pdf", ".docx"}
 
