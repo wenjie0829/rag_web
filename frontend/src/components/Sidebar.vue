@@ -554,16 +554,18 @@ onMounted(() => {
   background: white;
   flex-shrink: 0;
   position: relative;
+  overflow: visible;
 }
 
 .sidebar-search input {
   width: 100%;
-  padding: 6px 32px 6px 14px;
+  padding: 6px 28px 6px 14px;
   border: 1px solid #d0d7e2;
   border-radius: 20px;
   font-size: 13px;
   outline: none;
   background: #f8f9fa;
+  box-sizing: border-box;
   transition: border-color 0.2s;
 }
 
@@ -574,16 +576,21 @@ onMounted(() => {
 
 .sidebar-search .search-clear {
   position: absolute;
-  right: 26px;
+  right: 22px;
   top: 50%;
   transform: translateY(-50%);
   color: #b0b8c4;
   cursor: pointer;
   font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 50%;
+  transition: all 0.2s;
+  line-height: 1;
 }
 
 .sidebar-search .search-clear:hover {
   color: #1a2332;
+  background: #f0f2f5;
 }
 
 /* 搜索历史下拉 */
@@ -591,7 +598,7 @@ onMounted(() => {
   position: absolute;
   top: 100%;
   left: 0;
-  right: 0;
+  width: 100%; /* 用 width: 100% 替代 left:0; right:0 */
   background: white;
   border: 1px solid #d0d7e2;
   border-radius: 8px;
@@ -599,6 +606,7 @@ onMounted(() => {
   margin-top: 4px;
   z-index: 10;
   padding: 4px 0;
+  box-sizing: border-box;
 }
 
 .history-title {
