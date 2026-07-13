@@ -6,7 +6,7 @@ venv/
 
 # Node / Vite
 node_modules/
-dist/
+
 
 # Local vector database
 chroma_db/
