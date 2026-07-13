@@ -21,6 +21,7 @@ from docx import Document as DocxDocument
 load_dotenv()
 
 
+# ===== 使用本地 Embedding 模型（稳定可靠） =====
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-base-zh-v1.5")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEFAULT_TOP_K = max(1, int(os.getenv("RAG_TOP_K", "8")))
@@ -166,6 +167,15 @@ class RAGEngine:
             for source, chunk_count in sorted(counts.items())
         ]
 
+    # ----- 新增：获取某个文件的所有分块（用于预览） -----
+    def get_document_chunks(self, source: str) -> list[str]:
+        """获取某个文件的所有分块内容（用于预览）"""
+        results = self._collection.get(
+            where={"source": source},
+            include=["documents"]
+        )
+        return results.get("documents", [])
+
     def get_document_chunk(self, source: str, chunk_index: int) -> Document | None:
         """Fetch one original chunk so a citation can be opened in the UI."""
         results = self._collection.get(
@@ -214,8 +224,9 @@ class RAGEngine:
         if not api_key:
             raise ValueError("请设置 DEEPSEEK_API_KEY 环境变量")
 
+        # 去掉上下文中的【来源：...】标记
         context = "\n\n".join(
-            f"[来源：{document.source}，段落 {document.chunk_index + 1}]\n{document.content}"
+            document.content
             for document in documents
         )
         client = OpenAI(api_key=api_key, base_url=DEEPSEEK_BASE_URL)
@@ -228,7 +239,7 @@ class RAGEngine:
                         "你是严谨的中文知识库助手。仅依据给出的上下文回答，不要编造。"
                         "请综合所有相关片段形成完整答案，而不是只复述其中一段；"
                         "若片段信息相互补充，请明确整合；若上下文不足或有矛盾，请明确说明。"
-                        "使用清晰的中文作答，并在关键结论后标注对应的来源文件名。"
+                        "使用清晰的中文作答，不要使用任何加粗或特殊格式。"
                     ),
                 },
                 {

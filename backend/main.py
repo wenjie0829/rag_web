@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from rag_engine import RAGEngine
+from fastapi.responses import FileResponse
 
 load_dotenv()
 
@@ -84,6 +85,16 @@ async def upload(file: UploadFile = File(...)) -> dict[str, object]:
         if temporary_path and os.path.exists(temporary_path):
             os.unlink(temporary_path)
 
+@app.get("/documents/content")
+async def get_document_content(source: str):
+    """从 ChromaDB 读取文件内容用于预览"""
+    # 从 RAG 引擎获取该文件的所有分块
+    chunks = engine.get_document_chunks(source)
+    if not chunks:
+        raise HTTPException(status_code=404, detail="文件不存在或未被索引")
+    # 拼接所有分块
+    content = "\n\n".join(chunks)
+    return content  # 直接返回文本内容，前端显示
 
 @app.post("/ask")
 def ask(payload: AskRequest) -> dict[str, object]:
