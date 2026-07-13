@@ -95,11 +95,16 @@ export const useRagStore = defineStore('rag', {
         alert('已存在同名文件，请先处理或重命名后再恢复')
         return
       }
-      this.files.push(item.data)
+      // 1. 恢复文件（只恢复文件本身，不恢复问答）
+      // 注意：item.data 里包含 messages，但我们需要把 messages 清空再恢复
+      const fileData = JSON.parse(JSON.stringify(item.data))
+      fileData.messages = []  // 只恢复文件，不恢复问答
+      this.files.push(fileData)
       this.trash.files.splice(index, 1)
+
+      // 2. 不删除 trash.messages，让用户单独恢复问答
       this._save()
     },
-
     restoreMessage(trashMsgId) {
       const index = this.trash.messages.findIndex(t => t.messageId === trashMsgId)
       if (index === -1) return
