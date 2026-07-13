@@ -892,7 +892,7 @@ onMounted(() => {
   border-radius: 50%;
   padding: 0 6px;
   font-size: 11px;
-  min-width: 18px;
+  min-width: 6px;
   height: 18px;
   display: inline-flex;
   align-items: center;

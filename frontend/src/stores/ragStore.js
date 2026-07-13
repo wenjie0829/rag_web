@@ -111,10 +111,9 @@ export const useRagStore = defineStore('rag', {
       const item = this.trash.messages[index]
       const file = this.files.find(f => f.id === item.fileId)
       if (!file) {
-        alert('原文件已不存在，无法恢复该问答')
-        this.trash.messages.splice(index, 1)
-        this._save()
-        return
+        // 只提示，不自动删除
+        alert('原文件已不存在，请先恢复对应的文件，再恢复此问答')
+        return  // 问答保留在回收站中
       }
       file.messages.push({
         id: item.messageId,
