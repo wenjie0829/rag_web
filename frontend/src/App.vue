@@ -176,7 +176,7 @@ sidebarOpen.value = false
 }
 const store = useRagStore()
 const acceptedFormats = '.txt,.md,.pdf,.docx'
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const API_BASE = 'https://rag-production-18b0.up.railway.app'
 const CHAT_STORAGE_KEY = 'rag-web-chat-history-v1'
 
 const uploads = ref([])
