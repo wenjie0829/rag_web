@@ -83,7 +83,7 @@ async def upload(file: UploadFile = File(...)) -> dict[str, object]:
     """Receive and index one TXT, MD, PDF, or DOCX document."""
     filename = file.filename or "upload"
     suffix = Path(filename).suffix.lower()
-    if suffix not in SUPPORTED_EXPENSIONS:
+    if suffix not in SUPPORTED_EXTENSIONS:
         raise HTTPException(status_code=400, detail="仅支持 txt、md、pdf 和 docx 文件")
 
     temporary_path: str | None = None
