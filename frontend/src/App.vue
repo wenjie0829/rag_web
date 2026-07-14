@@ -172,10 +172,11 @@
 
 <script setup>
 import Sidebar from './components/Sidebar.vue'
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { useRagStore } from './stores/ragStore'
+import { onMounted } from 'vue'
 
 
 // ===== 状态 =====
