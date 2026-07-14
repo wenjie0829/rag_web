@@ -495,7 +495,7 @@ const shareAll = () => {
 
 // ===== 初始化 =====
 restoreChat()
-oonMounted(async () => {
+onMounted(async () => {
   // 从后端加载已索引的文件列表
   await loadIndexedDocuments()
   
