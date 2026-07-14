@@ -31,7 +31,7 @@ from fastapi.responses import FileResponse
 from pathlib import Path
 
 # 检查前端构建产物是否存在
-frontend_dist = Path("/app/frontend/dist")
+frontend_dist = Path("/app/dist")
 if frontend_dist.exists():
     app.mount("/assets", StaticFiles(directory=frontend_dist / "assets"), name="assets")
 
