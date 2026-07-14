@@ -83,20 +83,25 @@ async def upload(file: UploadFile = File(...)) -> dict[str, object]:
     """Receive and index one TXT, MD, PDF, or DOCX document."""
     filename = file.filename or "upload"
     suffix = Path(filename).suffix.lower()
-    if suffix not in SUPPORTED_EXTENSIONS:
+    if suffix not in SUPPORTED_EXPENSIONS:
         raise HTTPException(status_code=400, detail="仅支持 txt、md、pdf 和 docx 文件")
 
     temporary_path: str | None = None
     try:
+        print(f"开始处理文件: {filename}")  # 加这行
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temporary_file:
             temporary_path = temporary_file.name
             temporary_file.write(await file.read())
-        chunk_count = engine.ingest_file(temporary_path, source=filename)
-        return {"message": "文档已添加", "filename": filename, "chunks": chunk_count}
+            print(f"文件已保存到: {temporary_path}")  # 加这行
+            chunk_count = engine.ingest_file(temporary_path, source=filename)
+            print(f"索引完成，分块数: {chunk_count}")  # 加这行
+            return {"message": "文档已添加", "filename": filename, "chunks": chunk_count}
     except (ValueError, UnicodeDecodeError) as exc:
+        print(f"处理错误: {exc}")  # 加这行
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"文档处理失败：{exc}") from exc
+        print(f"未知错误: {exc}")  # 加这行
+        raise HTTPException(status_code=500, detail=f"文档处理失败: {exc}") from exc
     finally:
         await file.close()
         if temporary_path and os.path.exists(temporary_path):
