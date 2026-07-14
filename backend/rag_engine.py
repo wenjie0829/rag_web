@@ -20,7 +20,6 @@ from docx import Document as DocxDocument
 
 load_dotenv()
 
-
 # ===== 使用本地 Embedding 模型（稳定可靠） =====
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-base-zh-v1.5")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
@@ -38,7 +37,7 @@ class Document:
 
 
 def read_file(file_path: str) -> str:
-    """Read a supported document; TXT files fall back across common encodings."""
+    """读取文档，支持 txt、md、pdf、docx，docx 遇到图片错误时跳过"""
     path = Path(file_path)
     ext = path.suffix.lower()
     if ext == ".txt":
@@ -54,7 +53,28 @@ def read_file(file_path: str) -> str:
     if ext == ".pdf":
         return "\n\n".join(page.extract_text() or "" for page in PdfReader(str(path)).pages)
     if ext == ".docx":
-        return "\n\n".join(paragraph.text for paragraph in DocxDocument(str(path)).paragraphs)
+        try:
+            doc = DocxDocument(str(path))
+            return "\n\n".join(p.text for p in doc.paragraphs)
+        except Exception as e:
+            print(f"读取 docx 文件失败 ({file_path}): {e}，尝试只读取文本内容")
+            # 用 zipfile 读取 docx 中的 document.xml 提取文本
+            import zipfile
+            import xml.etree.ElementTree as ET
+            try:
+                with zipfile.ZipFile(path, 'r') as zf:
+                    with zf.open('word/document.xml') as xml_file:
+                        tree = ET.parse(xml_file)
+                        root = tree.getroot()
+                        ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
+                        texts = []
+                        for t in root.iter('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t'):
+                            if t.text:
+                                texts.append(t.text)
+                        return "\n\n".join(texts)
+            except Exception as e2:
+                print(f"docx 文本提取也失败: {e2}")
+                return ""
     raise ValueError("仅支持 txt、md、pdf 和 docx 格式的文档")
 
 
@@ -167,7 +187,6 @@ class RAGEngine:
             for source, chunk_count in sorted(counts.items())
         ]
 
-    # ----- 新增：获取某个文件的所有分块（用于预览） -----
     def get_document_chunks(self, source: str) -> list[str]:
         """获取某个文件的所有分块内容（用于预览）"""
         results = self._collection.get(
@@ -224,11 +243,7 @@ class RAGEngine:
         if not api_key:
             raise ValueError("请设置 DEEPSEEK_API_KEY 环境变量")
 
-        # 去掉上下文中的【来源：...】标记
-        context = "\n\n".join(
-            document.content
-            for document in documents
-        )
+        context = "\n\n".join(document.content for document in documents)
         client = OpenAI(api_key=api_key, base_url=DEEPSEEK_BASE_URL)
         response = client.chat.completions.create(
             model="deepseek-chat",
