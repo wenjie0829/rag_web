@@ -110,6 +110,18 @@
                           stroke="#8A8D94" stroke-width="2"
                           stroke-linecap="round"/>
                   </svg></el-button>
+                  <el-button size="small" text @click="reaskMessage(idx)"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+     xmlns="http://www.w3.org/2000/svg">
+  <path d="M20 11C19.5 7.1 16.2 4 12 4C7.6 4 4 7.6 4 12C4 16.4 7.6 20 12 20C15.2 20 18 18.1 19.3 15.3"
+                            stroke="#8A8D94"
+                            stroke-width="2"
+                            stroke-linecap="round"/>
+                      <path d="M20 5V11H14"
+                            stroke="#8A8D94"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"/>
+                    </svg></el-button>
             </div>
             <div v-if="msg.sources?.length" class="sources">
               <span>引用来源：</span>
@@ -214,9 +226,34 @@ function persistChat() {
 watch(messages, () => persistChat(), { deep: true })
 
 // ===== 加载已索引文档 =====
+// ===== 加载已索引文档（从后端同步） =====
 async function loadIndexedDocuments() {
-  // 什么都不做 —— 中间区域不再显示历史文件
-  // 文件列表只在侧边栏展示
+  try {
+    const { data } = await axios.get(`${API_BASE}/documents`)
+    const docs = data.documents || []
+    
+    // 更新 uploads（用于中间区域显示）
+    uploads.value = docs.map(doc => ({
+      uid: `indexed-${doc.source}`,
+      raw: null,
+      name: doc.source,
+      percentage: 100,
+      status: 'success',
+      detail: `已索引 ${doc.chunks} 个段落`,
+    }))
+
+    // 同步到侧边栏 store（去重）
+    docs.forEach(doc => {
+      const exists = store.files.find(f => f.name === doc.source)
+      if (!exists) {
+        store.addFile(doc.source)
+      }
+    })
+
+    console.log(`✅ 从后端加载了 ${docs.length} 个文件`)
+  } catch (error) {
+    console.warn('加载索引文档失败:', error)
+  }
 }
 // ===== 文件上传 =====
 function selectFiles(uploadFile) {
@@ -248,24 +285,29 @@ async function uploadFiles() {
       const formData = new FormData()
       formData.append('file', item.raw)
       try {
-        const { data } = await axios.post(`${API_BASE}/upload`, formData, {
+        const response = await axios.post(`${API_BASE}/upload`, formData, {
           onUploadProgress: (event) => {
             if (event.total) item.percentage = Math.round((event.loaded / event.total) * 100)
           },
         })
-        // 上传成功
-        item.status = 'success'
-        item.percentage = 100
-        item.detail = `已索引 ${data.chunks} 个段落`
+        
+        console.log('上传响应:', response.data)
+        
+        // 检查响应是否包含 chunks 字段
+        if (response.data && response.data.chunks !== undefined) {
+          item.status = 'success'
+          item.percentage = 100
+          item.detail = `已索引 ${response.data.chunks} 个段落`
+        } else {
+          throw new Error('响应格式异常')
+        }
 
-        // 1. 同步到侧边栏 store
+        // 同步到侧边栏 store
         const existingFile = store.files.find(f => f.name === item.name)
         if (!existingFile) {
           store.addFile(item.name)
         }
 
-        // 2. 从 uploads 中移除该文件（不再显示在中间区域）
-        //    用 setTimeout 确保界面更新后再删除，避免闪烁
         setTimeout(() => {
           const idx = uploads.value.findIndex(f => f.uid === item.uid)
           if (idx > -1) {
@@ -273,17 +315,14 @@ async function uploadFiles() {
           }
         }, 100)
       } catch (error) {
+        console.error('上传错误:', error)
         item.status = 'error'
-        item.detail = error.response?.data?.detail || '上传或索引失败'
-        // 如果后端返回智谱 embedding 错误，显示更具体信息
-        if (error.response?.data?.detail?.includes('input数组')) {
-          item.detail = '文件过大，请分段上传或联系管理员'
-        }
+        item.detail = error.response?.data?.detail || error.message || '上传或索引失败'
       }
     }
     const failed = pendingFiles.filter((file) => file.status === 'error').length
     if (failed) {
-      ElMessage.warning(`${failed} 个文件处理失败，请重试`)
+      ElMessage.warning(`${failed} 个文件处理失败`)
     } else {
       ElMessage.success('文件已上传并完成索引')
     }
@@ -397,6 +436,48 @@ const copyMessage = (content) => {
   }).catch(() => ElMessage.error('复制失败'))
 }
 
+// ===== 重新回答 =====
+const reaskMessage = async (index) => {
+  const msg = messages.value[index]
+  if (!msg || msg.role !== 'assistant') return
+
+  const userMsg = messages.value[index - 1]
+  if (!userMsg || userMsg.role !== 'user') {
+    ElMessage.warning('未找到对应的用户问题')
+    return
+  }
+
+  // 保存原回答（如果失败可以恢复）
+  const originalContent = msg.content
+  const originalSources = msg.sources
+
+  msg.loading = true
+  msg.content = '正在重新生成回答…'
+  msg.sources = []
+
+  try {
+    const { data } = await axios.post(`${API_BASE}/ask`, { question: userMsg.content })
+    
+    let cleanAnswer = data.answer || ''
+    cleanAnswer = cleanAnswer.replace(/【来源:.*?】/g, '').trim()
+    cleanAnswer = cleanAnswer.replace(/^[\*\-\_]{3,}\s*$/gm, '')
+    cleanAnswer = cleanAnswer.replace(/\*\*\*/g, '')
+    cleanAnswer = cleanAnswer.replace(/\*+/g, '')
+    
+    msg.content = cleanAnswer || data.answer || '未获取到回答'
+    msg.sources = data.sources || []
+  } catch (error) {
+    // 失败时恢复原回答
+    msg.content = originalContent || '重新回答失败，请重试'
+    msg.sources = originalSources || []
+    ElMessage.error('重新回答失败，已恢复原回答')
+  } finally {
+    msg.loading = false
+    persistChat()
+    await scrollToLatest()
+  }
+}
+
 const shareAll = () => {
   const text = messages.value
     .filter(m => !m.loading && m.content)
@@ -413,14 +494,21 @@ const shareAll = () => {
 
 // ===== 初始化 =====
 restoreChat()
-onMounted(async () => {  
-  window.store = store  // 把 store 挂到全局，方便调试
+oonMounted(async () => {
+  // 从后端加载已索引的文件列表
+  await loadIndexedDocuments()
+  
+  // 如果加载后 store.files 为空，尝试从 localStorage 恢复（兼容旧数据）
+  if (store.files.length === 0) {
+    store._load()
+  }
+  
   await scrollToLatest()
   
-  // 进入页面时立即检查一次
+  // 进入页面时立即检查一次回收站
   store.cleanTrash()
 
-  // 然后每 5 分钟检查一次
+  // 每 5 分钟检查一次回收站
   setInterval(() => {
     store.cleanTrash()
   }, 5 * 60 * 1000)

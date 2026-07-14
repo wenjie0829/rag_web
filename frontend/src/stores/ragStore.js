@@ -15,6 +15,10 @@ export const useRagStore = defineStore('rag', {
   actions: {
     // ========== 文件管理 ==========
     addFile(name) {
+      // 检查是否已存在同名文件
+      const exists = this.files.find(f => f.name === name)
+      if (exists) return exists.id
+      
       const id = Date.now().toString()
       this.files.push({
         id,
@@ -22,7 +26,10 @@ export const useRagStore = defineStore('rag', {
         createdAt: new Date().toISOString(),
         messages: []
       })
-      this.currentFileID = id
+      // 如果当前没有选中文件，则设置为当前文件
+      if (!this.currentFileID) {
+        this.currentFileID = id
+      }
       this._save()
       return id
     },
