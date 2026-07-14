@@ -1,5 +1,9 @@
 <template>
-  <div class="sidebar">
+  <!-- 遮罩层 -->
+  <div v-if="props.open" class="sidebar-overlay" @click="emit('close')"></div>
+
+  <!-- 侧边栏 -->
+  <div class="sidebar" :class="{ open: props.open }">
     <!-- 头部 -->
     <div class="sidebar-header">
       <h3>📁 我的文件</h3>
@@ -20,7 +24,6 @@
       />
       <span v-if="searchKeyword" class="search-clear" @click="clearSearch">✕</span>
 
-      <!-- 历史记录下拉 -->
       <div v-if="showHistory && searchHistory.length > 0 && !searchKeyword.trim()" class="search-history">
         <div class="history-title">搜索历史</div>
         <div
@@ -35,9 +38,8 @@
       </div>
     </div>
 
-    <!-- 文件列表（可滚动区域） -->
+    <!-- 文件列表 -->
     <div class="session-list">
-      <!-- 搜索结果 -->
       <template v-if="searchKeyword.trim()">
         <div v-if="searchResults.length === 0" class="no-result">
           <span>未找到匹配的问答...</span>
@@ -48,7 +50,6 @@
           class="qa-item search-item"
           @click="goToSearchResult(result)"
         >
-          <!-- 文件头部（文件名匹配） -->
           <div v-if="result.isFileHeader">
             <div class="search-file-result">
               <span class="q">📄 {{ result.fileName }}</span>
@@ -56,7 +57,6 @@
             </div>
             <div class="a">包含 {{ getFileMessageCount(result.fileId) }} 条问答</div>
           </div>
-          <!-- 问答匹配 -->
           <div v-else>
             <div class="q">Q：{{ truncate(result.msg.question, 40) }}</div>
             <div class="a">A：{{ truncate(result.msg.answer, 60) }}</div>
@@ -65,7 +65,6 @@
         </div>
       </template>
 
-      <!-- 正常文件列表 -->
       <template v-else>
         <div v-if="files.length === 0" class="empty-state">
           <p>还没有上传文件</p>
@@ -84,7 +83,6 @@
             </div>
           </div>
 
-          <!-- 展开的问答列表 -->
           <div v-if="expandedFiles.includes(file.id)" class="file-messages">
             <div v-if="file.messages.length === 0" class="empty-msg">暂无问答记录</div>
             <div
@@ -114,13 +112,13 @@
     </div>
   </div>
 
-  <!-- 文件预览弹窗 -->
+  <!-- 预览弹窗 -->
   <el-dialog v-model="previewVisible" :title="previewFileName" width="80%" top="5vh" destroy-on-close>
     <div v-if="previewLoading" class="preview-loading">加载中...</div>
     <pre v-else class="preview-content">{{ previewContent }}</pre>
   </el-dialog>
 
-  <!-- 问答详情弹窗 -->
+  <!-- 问答弹窗 -->
   <el-dialog v-model="qaDialogVisible" :title="qaDialogTitle" width="70%" top="5vh" destroy-on-close>
     <div class="qa-dialog-content">
       <div class="qa-dialog-question">
@@ -159,7 +157,6 @@
       </span>
     </div>
     <div class="trash-list">
-      <!-- 文件 tab -->
       <div v-show="trashTab === 'files'">
         <div v-if="filteredTrashFiles.length === 0" class="trash-empty">暂无文件</div>
         <div v-for="item in filteredTrashFiles" :key="item.fileId" class="trash-item">
@@ -174,7 +171,6 @@
           </div>
         </div>
       </div>
-      <!-- 问答 tab -->
       <div v-show="trashTab === 'messages'">
         <div v-if="filteredTrashMessages.length === 0" class="trash-empty">暂无问答</div>
         <div
@@ -207,6 +203,15 @@ import { useRagStore } from '../stores/ragStore'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
+// ===== 接收父组件控制 =====
+const props = defineProps({
+  open: {
+    type: Boolean,
+    default: false
+  }
+})
+const emit = defineEmits(['close'])
+
 // ===== Store =====
 const store = useRagStore()
 const files = computed(() => store.files)
@@ -223,7 +228,6 @@ const MAX_HISTORY = 6
 const searchContainer = ref(null)
 const searchInput = ref(null)
 
-// 加载历史
 const loadSearchHistory = () => {
   try {
     const saved = localStorage.getItem('rag_search_history')
@@ -231,7 +235,6 @@ const loadSearchHistory = () => {
   } catch { searchHistory.value = [] }
 }
 
-// 保存历史（去重，最新的在前）
 const saveSearchHistory = (keyword) => {
   if (!keyword.trim()) return
   let history = searchHistory.value.filter(item => item !== keyword.trim())
@@ -241,7 +244,6 @@ const saveSearchHistory = (keyword) => {
   localStorage.setItem('rag_search_history', JSON.stringify(history))
 }
 
-// 清空历史
 const clearHistory = () => {
   if (confirm('确定要清空所有搜索历史吗？')) {
     searchHistory.value = []
@@ -250,7 +252,6 @@ const clearHistory = () => {
   }
 }
 
-// ===== 核心搜索逻辑（输入即搜索，搜索即保存） =====
 const executeSearch = () => {
   const keyword = searchKeyword.value.trim()
   if (!keyword) {
@@ -258,11 +259,7 @@ const executeSearch = () => {
     showHistory.value = false
     return
   }
-
-  // 保存搜索历史
   saveSearchHistory(keyword)
-
-  // 执行搜索
   const lowerKeyword = keyword.toLowerCase()
   const results = []
   files.value.forEach(file => {
@@ -271,32 +268,14 @@ const executeSearch = () => {
       msg.question.toLowerCase().includes(lowerKeyword) ||
       msg.answer.toLowerCase().includes(lowerKeyword)
     )
-
     if (fileMatches) {
-      // 文件头部
-      results.push({
-        fileId: file.id,
-        fileName: file.name,
-        msg: null,
-        isFileHeader: true
-      })
-      // 该文件下所有问答
+      results.push({ fileId: file.id, fileName: file.name, msg: null, isFileHeader: true })
       file.messages.forEach(msg => {
-        results.push({
-          fileId: file.id,
-          fileName: file.name,
-          msg: msg,
-          isFileHeader: false
-        })
+        results.push({ fileId: file.id, fileName: file.name, msg: msg, isFileHeader: false })
       })
     } else if (matchedMessages.length > 0) {
       matchedMessages.forEach(msg => {
-        results.push({
-          fileId: file.id,
-          fileName: file.name,
-          msg: msg,
-          isFileHeader: false
-        })
+        results.push({ fileId: file.id, fileName: file.name, msg: msg, isFileHeader: false })
       })
     }
   })
@@ -304,37 +283,26 @@ const executeSearch = () => {
   showHistory.value = false
 }
 
-// 输入时触发
-const onInputChange = () => {
-  executeSearch()
-}
+const onInputChange = () => executeSearch()
+const performSearch = () => executeSearch()
 
-// 按回车触发
-const performSearch = () => {
-  executeSearch()
-}
-
-// 点击历史记录项
 const applyHistorySearch = (keyword) => {
   searchKeyword.value = keyword
   executeSearch()
 }
 
-// 清空搜索
 const clearSearch = () => {
   searchKeyword.value = ''
   searchResults.value = []
   showHistory.value = false
 }
 
-// 点击外部关闭下拉
 const handleClickOutside = (e) => {
   if (searchContainer.value && !searchContainer.value.contains(e.target)) {
     showHistory.value = false
   }
 }
 
-// 搜索结果点击跳转
 const goToSearchResult = (result) => {
   if (result.isFileHeader) {
     const file = files.value.find(f => f.id === result.fileId)
@@ -384,7 +352,7 @@ const previewFile = async (fileName) => {
   }
 }
 
-// ===== 问答详情弹窗 =====
+// ===== 问答弹窗 =====
 const qaDialogVisible = ref(false)
 const qaDialogTitle = ref('')
 const qaDialogQuestion = ref('')
@@ -404,11 +372,8 @@ const toggleFile = (id) => {
   store.setCurrentFile(id)
   ElMessage.success(`已选择文件：${file.name}`)
   const idx = expandedFiles.value.indexOf(id)
-  if (idx > -1) {
-    expandedFiles.value.splice(idx, 1)
-  } else {
-    expandedFiles.value.push(id)
-  }
+  if (idx > -1) expandedFiles.value.splice(idx, 1)
+  else expandedFiles.value.push(id)
 }
 
 const handleDeleteFile = (id) => {
@@ -509,19 +474,55 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* ===== 遮罩层（手机端） ===== */
+.sidebar-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 999;
+}
+
 /* ===== 侧边栏容器 ===== */
 .sidebar {
-  width: 300px;
-  min-width: 300px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 80%;
+  max-width: 320px;
   background: #f8f9fa;
   border-right: 1px solid #e8ecf1;
+  z-index: 1000;
+  transform: translateX(-100%);
+  transition: transform 0.3s ease;
   display: flex;
   flex-direction: column;
-  height: 100vh;
   overflow: hidden;
 }
 
-/* ===== 头部 ===== */
+.sidebar.open {
+  transform: translateX(0);
+}
+
+/* ===== 桌面端 ===== */
+@media (min-width: 769px) {
+  .sidebar {
+    position: relative;
+    transform: none !important;
+    width: 300px;
+    min-width: 300px;
+    max-width: 300px;
+    z-index: 1;
+  }
+  .sidebar-overlay {
+    display: none !important;
+  }
+}
+
+/* ===== 以下是你原有的样式（保持不变） ===== */
 .sidebar-header {
   padding: 16px 20px;
   border-bottom: 1px solid #e8ecf1;
@@ -547,7 +548,6 @@ onMounted(() => {
   font-size: 12px;
 }
 
-/* ===== 搜索框 ===== */
 .sidebar-search {
   padding: 10px 16px;
   border-bottom: 1px solid #e8ecf1;
@@ -593,12 +593,11 @@ onMounted(() => {
   background: #f0f2f5;
 }
 
-/* 搜索历史下拉 */
 .search-history {
   position: absolute;
   top: 100%;
   left: 0;
-  width: 100%; /* 用 width: 100% 替代 left:0; right:0 */
+  width: 100%;
   background: white;
   border: 1px solid #d0d7e2;
   border-radius: 8px;
@@ -641,7 +640,6 @@ onMounted(() => {
   background: #fef0f0;
 }
 
-/* ===== 文件列表（可滚动） ===== */
 .session-list {
   flex: 1;
   overflow-y: auto;
@@ -649,7 +647,6 @@ onMounted(() => {
   min-height: 0;
 }
 
-/* ===== 空状态 ===== */
 .empty-state {
   padding: 40px 20px;
   text-align: center;
@@ -663,12 +660,11 @@ onMounted(() => {
   margin-top: 4px;
 }
 
-/* ===== 文件项 ===== */
 .file-item {
   margin-bottom: 6px;
   background: white;
   border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
   overflow: hidden;
 }
 
@@ -760,7 +756,6 @@ onMounted(() => {
   color: #e74c3c;
 }
 
-/* ===== 问答列表 ===== */
 .file-messages {
   padding: 6px 14px 12px 14px;
   border-top: 1px solid #f0f2f5;
@@ -836,7 +831,6 @@ onMounted(() => {
   padding: 8px 0;
 }
 
-/* ===== 搜索结果 ===== */
 .search-item {
   padding: 8px 0;
   border-bottom: 1px solid #f0f2f5;
@@ -847,10 +841,12 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
 }
+
 .search-file-result .q {
   cursor: pointer;
   flex: 1;
 }
+
 .search-file-result .q:hover {
   color: #409eff;
 }
@@ -862,7 +858,6 @@ onMounted(() => {
   font-size: 14px;
 }
 
-/* ===== 底部按钮 ===== */
 .sidebar-footer {
   padding: 12px 20px;
   border-top: 1px solid #e8ecf1;
@@ -926,7 +921,6 @@ onMounted(() => {
   color: #e74c3c;
 }
 
-/* ===== 预览弹窗 ===== */
 .preview-content {
   max-height: 70vh;
   overflow-y: auto;
@@ -945,7 +939,6 @@ onMounted(() => {
   color: #8a9aa8;
 }
 
-/* ===== 问答弹窗 ===== */
 .qa-dialog-content {
   display: flex;
   flex-direction: column;
@@ -978,7 +971,6 @@ onMounted(() => {
   color: #e6a23c;
 }
 
-/* ===== 回收站弹窗 ===== */
 .trash-search {
   padding: 8px 0 12px 0;
   width: 100%;
@@ -1119,7 +1111,6 @@ onMounted(() => {
   background: #fce4e4;
 }
 
-/* ===== 滚动条美化 ===== */
 .sidebar ::-webkit-scrollbar {
   width: 4px;
 }

@@ -1,11 +1,15 @@
 <template>
   <div class="app-layout">
     <!-- 左侧侧边栏 -->
-    <Sidebar />
+<!-- frontend/src/App.vue -->
+<Sidebar :open="sidebarOpen" @close="closeSidebar" />
 
     <!-- 右侧主内容区 -->
     <main class="workspace">
       <header>
+          <button class="menu-btn" @click="toggleSidebar" aria-label="Toggle sidebar">
+        ☰
+      </button>
         <h1>RAG Web</h1>
         <p>上传文档后，向你的本地知识库提问。</p>
       </header>
@@ -161,7 +165,15 @@ import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { useRagStore } from './stores/ragStore'
 
+
 // ===== 状态 =====
+const sidebarOpen = ref(false)
+const toggleSidebar = () => {
+sidebarOpen.value = !sidebarOpen.value
+}
+const closeSidebar = () => {
+sidebarOpen.value = false
+}
 const store = useRagStore()
 const acceptedFormats = '.txt,.md,.pdf,.docx'
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
@@ -649,4 +661,25 @@ header p {
     max-width: 94%;
   }
 }
+
+/* frontend/src/App.vue */
+/* 在 style 中添加 */
+
+.menu-btn {
+  display: none;
+  font-size: 24px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  padding: 8px;
+  margin-right: 8px;
+}
+
+@media (max-width: 768px) {
+  .menu-btn {
+    display: inline-block;
+  }
+}
+
 </style>
