@@ -88,35 +88,43 @@ async def upload(file: UploadFile = File(...)) -> dict[str, object]:
 
     temporary_path: str | None = None
     try:
-        print(f"开始处理文件: {filename}")  # 加这行
+        print(f"开始处理文件: {filename}")
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temporary_file:
             temporary_path = temporary_file.name
             temporary_file.write(await file.read())
-            print(f"文件已保存到: {temporary_path}")  # 加这行
+            print(f"文件已保存到: {temporary_path}")
+            
+            # 使用完整文件名（含扩展名）作为 source
             chunk_count = engine.ingest_file(temporary_path, source=filename)
-            print(f"索引完成，分块数: {chunk_count}")  # 加这行
+            print(f"索引完成，分块数: {chunk_count}")
+            
             return {"message": "文档已添加", "filename": filename, "chunks": chunk_count}
+            
     except (ValueError, UnicodeDecodeError) as exc:
-        print(f"处理错误: {exc}")  # 加这行
+        print(f"处理错误: {exc}")
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        print(f"未知错误: {exc}")  # 加这行
+        print(f"未知错误: {exc}")
         raise HTTPException(status_code=500, detail=f"文档处理失败: {exc}") from exc
     finally:
-        await file.close()
         if temporary_path and os.path.exists(temporary_path):
-            os.unlink(temporary_path)
-
+            try:
+                os.unlink(temporary_path)
+            except Exception:
+                pass
 @app.get("/documents/content")
 async def get_document_content(source: str):
     """从 ChromaDB 读取文件内容用于预览"""
-    # 从 RAG 引擎获取该文件的所有分块
     chunks = engine.get_document_chunks(source)
+    if not chunks:
+        # 兼容旧数据：如果查不到，尝试去掉扩展名再查一次
+        source_without_ext = source.rsplit(".", 1)[0]
+        chunks = engine.get_document_chunks(source_without_ext)
     if not chunks:
         raise HTTPException(status_code=404, detail="文件不存在或未被索引")
     # 拼接所有分块
     content = "\n\n".join(chunks)
-    return content  # 直接返回文本内容，前端显示
+    return content
 
 @app.post("/ask")
 def ask(payload: AskRequest) -> dict[str, object]:
