@@ -35,14 +35,28 @@ frontend_dist = Path("/app/dist")
 if frontend_dist.exists():
     app.mount("/assets", StaticFiles(directory=frontend_dist / "assets"), name="assets")
 
-@app.get("/")
-async def serve_index():
-    # 尝试返回前端 index.html
-    index_path = frontend_dist / "index.html"
-    if index_path.exists():
-        return FileResponse(index_path)
-    return {"message": "RAG Web API is running, but frontend not built yet."}
-
+@app.get("/documents/content")
+async def get_document_content(source: str):
+    # 1. 直接匹配
+    chunks = engine.get_document_chunks(source)
+    if chunks:
+        content = "\n\n".join(chunks[:5])
+        return content
+    # 2. 去掉扩展名匹配
+    source_without_ext = source.rsplit(".", 1)[0]
+    chunks = engine.get_document_chunks(source_without_ext)
+    if chunks:
+        content = "\n\n".join(chunks[:5])
+        return content
+    # 3. 模糊匹配（包含关系）
+    all_docs = engine.list_documents()
+    for doc in all_docs:
+        if source in doc["source"] or doc["source"] in source:
+            chunks = engine.get_document_chunks(doc["source"])
+            if chunks:
+                content = "\n\n".join(chunks[:5])
+                return content
+    raise HTTPException(status_code=404, detail="文件不存在或未被索引")
 engine = RAGEngine()
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".pdf", ".docx"}
 
