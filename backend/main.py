@@ -121,9 +121,17 @@ async def get_document_content(source: str):
         source_without_ext = source.rsplit(".", 1)[0]
         chunks = engine.get_document_chunks(source_without_ext)
     if not chunks:
+        all_docs = engine.list_documents()
+        for doc in all_docs:
+            if source in doc["source"] or doc["source"] in source:
+                chunks = engine.get_document_chunks(doc["source"])
+                if chunks:
+                    break
+    if not chunks:
         raise HTTPException(status_code=404, detail="文件不存在或未被索引")
     # 拼接所有分块
-    content = "\n\n".join(chunks)
+    preview_chunks = chunks[:5]
+    content = "\n\n".join(preview_chunks)
     return content
 
 @app.post("/ask")
