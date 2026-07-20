@@ -202,6 +202,8 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRagStore } from '../stores/ragStore'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+
 
 // ===== 接收父组件控制 =====
 const props = defineProps({
@@ -340,7 +342,6 @@ const previewFile = async (fileName) => {
   previewLoading.value = true
   previewContent.value = ''
   try {
-    const API_BASE = 'http://localhost:8000'
     const { data } = await axios.get(`${API_BASE}/documents/content`, {
       params: { source: fileName }
     })

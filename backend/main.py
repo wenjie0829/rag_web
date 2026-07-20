@@ -9,13 +9,12 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from rag_engine import RAGEngine
-from fastapi.responses import FileResponse
 
 load_dotenv()
-
 
 app = FastAPI(title="RAG Web API")
 app.add_middleware(
@@ -26,44 +25,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from pathlib import Path
-
-# 检查前端构建产物是否存在
-frontend_dist = Path("/app/dist")
-if frontend_dist.exists():
-    app.mount("/assets", StaticFiles(directory=frontend_dist / "assets"), name="assets")
-
-@app.get("/documents/content")
-async def get_document_content(source: str):
-    # 1. 直接匹配
-    chunks = engine.get_document_chunks(source)
-    if chunks:
-        content = "\n\n".join(chunks[:5])
-        return content
-    # 2. 去掉扩展名匹配
-    source_without_ext = source.rsplit(".", 1)[0]
-    chunks = engine.get_document_chunks(source_without_ext)
-    if chunks:
-        content = "\n\n".join(chunks[:5])
-        return content
-    # 3. 模糊匹配（包含关系）
-    all_docs = engine.list_documents()
-    for doc in all_docs:
-        if source in doc["source"] or doc["source"] in source:
-            chunks = engine.get_document_chunks(doc["source"])
-            if chunks:
-                content = "\n\n".join(chunks[:5])
-                return content
-    raise HTTPException(status_code=404, detail="文件不存在或未被索引")
 engine = RAGEngine()
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".pdf", ".docx"}
+frontend_dist = Path("/app/dist")
 
 
 class AskRequest(BaseModel):
     question: str = Field(min_length=1, description="用户的问题")
 
+
+# ===================== API 路由（必须都在静态文件挂载之前）=====================
 
 @app.get("/health")
 def health() -> dict[str, str]:
@@ -92,6 +63,29 @@ def document_chunk(
     }
 
 
+@app.get("/documents/content")
+async def get_document_content(source: str):
+    """从 ChromaDB 读取文件内容用于预览"""
+    chunks = engine.get_document_chunks(source)
+    if not chunks:
+        # 兼容旧数据：如果查不到，尝试去掉扩展名再查一次
+        source_without_ext = source.rsplit(".", 1)[0]
+        chunks = engine.get_document_chunks(source_without_ext)
+    if not chunks:
+        # 模糊匹配（包含关系）
+        all_docs = engine.list_documents()
+        for doc in all_docs:
+            if source in doc["source"] or doc["source"] in source:
+                chunks = engine.get_document_chunks(doc["source"])
+                if chunks:
+                    break
+    if not chunks:
+        raise HTTPException(status_code=404, detail="文件不存在或未被索引")
+    preview_chunks = chunks[:5]
+    content = "\n\n".join(preview_chunks)
+    return content
+
+
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)) -> dict[str, object]:
     """Receive and index one TXT, MD, PDF, or DOCX document."""
@@ -107,13 +101,13 @@ async def upload(file: UploadFile = File(...)) -> dict[str, object]:
             temporary_path = temporary_file.name
             temporary_file.write(await file.read())
             print(f"文件已保存到: {temporary_path}")
-            
+
             # 使用完整文件名（含扩展名）作为 source
             chunk_count = engine.ingest_file(temporary_path, source=filename)
             print(f"索引完成，分块数: {chunk_count}")
-            
+
             return {"message": "文档已添加", "filename": filename, "chunks": chunk_count}
-            
+
     except (ValueError, UnicodeDecodeError) as exc:
         print(f"处理错误: {exc}")
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -126,27 +120,7 @@ async def upload(file: UploadFile = File(...)) -> dict[str, object]:
                 os.unlink(temporary_path)
             except Exception:
                 pass
-@app.get("/documents/content")
-async def get_document_content(source: str):
-    """从 ChromaDB 读取文件内容用于预览"""
-    chunks = engine.get_document_chunks(source)
-    if not chunks:
-        # 兼容旧数据：如果查不到，尝试去掉扩展名再查一次
-        source_without_ext = source.rsplit(".", 1)[0]
-        chunks = engine.get_document_chunks(source_without_ext)
-    if not chunks:
-        all_docs = engine.list_documents()
-        for doc in all_docs:
-            if source in doc["source"] or doc["source"] in source:
-                chunks = engine.get_document_chunks(doc["source"])
-                if chunks:
-                    break
-    if not chunks:
-        raise HTTPException(status_code=404, detail="文件不存在或未被索引")
-    # 拼接所有分块
-    preview_chunks = chunks[:5]
-    content = "\n\n".join(preview_chunks)
-    return content
+
 
 @app.post("/ask")
 def ask(payload: AskRequest) -> dict[str, object]:
@@ -164,3 +138,11 @@ def ask(payload: AskRequest) -> dict[str, object]:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"问答服务调用失败：{exc}") from exc
+
+
+# ===================== 静态文件挂载（必须放在所有 API 路由的最后）=====================
+# html=True 会让访问 "/" 时自动返回 dist/index.html，
+# 同时 /assets/xxx.js、/assets/xxx.css 等静态资源也会一并被这个挂载覆盖。
+# 一定要放在文件最后，否则会拦截掉上面所有 /health、/documents、/ask 等接口。
+if frontend_dist.exists():
+    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="static")
