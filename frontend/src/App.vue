@@ -235,10 +235,13 @@ async function loadIndexedDocuments() {
     const docs = data.documents || []
 
     // 只同步到侧边栏 store（去重），不再把已索引文档灌回 uploads 列表——
-    // uploads 只用来展示"本次正在上传/刚上传"的文件，已索引文档一律只在侧边栏展示
+    // uploads 只用来展示"本次正在上传/刚上传"的文件，已索引文档一律只在侧边栏展示。
+    // 同时要把回收站里的文件也排除掉：这些是用户"移入回收站"的软删除，
+    // 后端数据还在（否则以后就没法恢复了），但不应该被同步逻辑当成新文件又塞回侧边栏。
     docs.forEach(doc => {
-      const exists = store.files.find(f => f.name === doc.source)
-      if (!exists) {
+      const existsInFiles = store.files.find(f => f.name === doc.source)
+      const existsInTrash = store.trash.files.find(t => t.name === doc.source)
+      if (!existsInFiles && !existsInTrash) {
         store.addFile(doc.source)
       }
     })

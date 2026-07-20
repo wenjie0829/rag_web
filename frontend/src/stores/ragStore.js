@@ -1,5 +1,19 @@
 // src/stores/ragStore.js
 import { defineStore } from 'pinia'
+import axios from 'axios'
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+
+// 彻底删除时调用后端接口，把向量数据从 ChromaDB 里真正清掉。
+// 跟"移入回收站"不同，这个操作没有恢复的可能，失败了也只打印警告、
+// 不阻塞本地状态清理（避免网络抖动导致用户点了删除却卡住）。
+async function deleteDocumentFromBackend(source) {
+  try {
+    await axios.delete(`${API_BASE}/documents`, { params: { source } })
+  } catch (error) {
+    console.warn(`后端删除文档失败（${source}）:`, error)
+  }
+}
 
 export const useRagStore = defineStore('rag', {
   state: () => ({
@@ -133,9 +147,11 @@ export const useRagStore = defineStore('rag', {
     },
 
     // ========== 回收站 - 永久删除 ==========
-    permanentDeleteFile(trashFileId) {
+    async permanentDeleteFile(trashFileId) {
       const index = this.trash.files.findIndex(t => t.fileId === trashFileId)
       if (index === -1) return
+      const item = this.trash.files[index]
+      await deleteDocumentFromBackend(item.name)
       this.trash.files.splice(index, 1)
       this._save()
     },
@@ -148,25 +164,34 @@ export const useRagStore = defineStore('rag', {
     },
 
     // ========== 回收站 - 清空全部 ==========
-    emptyTrash() {
-      if (confirm('确定要清空回收站吗？此操作不可恢复！')) {
-        this.trash.files = []
-        this.trash.messages = []
-        this._save()
-      }
+    async emptyTrash() {
+      if (!confirm('确定要清空回收站吗？此操作不可恢复！')) return
+      const sources = [...new Set(this.trash.files.map(item => item.name))]
+      await Promise.all(sources.map(source => deleteDocumentFromBackend(source)))
+      this.trash.files = []
+      this.trash.messages = []
+      this._save()
     },
 
     // ========== 回收站 - 自动清理过期（7天） ==========
-    cleanTrash() {
+    async cleanTrash() {
       const now = Date.now()
       const sevenDays = 7 * 24 * 60 * 60 * 1000
       let changed = false
 
       const beforeFiles = this.trash.files.length
+      const expiredFiles = this.trash.files.filter(item => {
+        return (now - new Date(item.deletedAt).getTime()) >= sevenDays
+      })
       this.trash.files = this.trash.files.filter(item => {
         return (now - new Date(item.deletedAt).getTime()) < sevenDays
       })
-      if (this.trash.files.length !== beforeFiles) changed = true
+      if (this.trash.files.length !== beforeFiles) {
+        changed = true
+        // 过期自动清理属于彻底删除，同步清掉后端向量数据，避免下次同步时又冒出来
+        const sources = [...new Set(expiredFiles.map(item => item.name))]
+        await Promise.all(sources.map(source => deleteDocumentFromBackend(source)))
+      }
 
       const beforeMessages = this.trash.messages.length
       this.trash.messages = this.trash.messages.filter(item => {
@@ -216,15 +241,21 @@ export const useRagStore = defineStore('rag', {
     },
 
     // ========== 清空所有数据 ==========
-    clearAll() {
-      if (confirm('确定要清空所有数据吗？此操作不可恢复！')) {
-        this.files = []
-        this.favorites = []
-        this.currentFileID = null
-        this.trash.files = []
-        this.trash.messages = []
-        localStorage.removeItem('rag_data')
-      }
+    async clearAll() {
+      if (!confirm('确定要清空所有数据吗？此操作不可恢复！')) return
+      const sources = [
+        ...new Set([
+          ...this.files.map(f => f.name),
+          ...this.trash.files.map(t => t.name),
+        ])
+      ]
+      await Promise.all(sources.map(source => deleteDocumentFromBackend(source)))
+      this.files = []
+      this.favorites = []
+      this.currentFileID = null
+      this.trash.files = []
+      this.trash.messages = []
+      localStorage.removeItem('rag_data')
     },
 
     // ========== 持久化 ==========

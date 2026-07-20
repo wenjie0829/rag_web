@@ -48,6 +48,14 @@ def documents() -> dict[str, object]:
     return {"documents": engine.list_documents()}
 
 
+@app.delete("/documents")
+def delete_document(source: str = Query(min_length=1)) -> dict[str, str]:
+    """彻底删除某个文档在向量库里的全部数据。用于"永久删除"/"清空回收站"/"清空所有"，
+    跟前端"移入回收站"（软删除，仍可恢复）是两个不同的操作，只有这个才是真的清库。"""
+    engine.delete_document(source)
+    return {"message": "文档已彻底删除", "source": source}
+
+
 @app.get("/documents/chunk")
 def document_chunk(
     source: str = Query(min_length=1),

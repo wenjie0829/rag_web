@@ -195,6 +195,11 @@ class RAGEngine:
             for source, chunk_count in sorted(counts.items())
         ]
 
+    def delete_document(self, source: str) -> None:
+        """彻底删除某个文档在向量库里的全部分块（用于"永久删除"/"清空回收站"）。
+        跟"移入回收站"不同，这个操作没有恢复的可能。"""
+        self._collection.delete(where={"source": source})
+
     def get_document_chunks(self, source: str) -> list[str]:
         """获取某个文件的所有分块内容（用于预览）"""
         results = self._collection.get(
