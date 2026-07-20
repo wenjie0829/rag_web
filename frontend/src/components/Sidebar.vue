@@ -202,6 +202,9 @@ import { useRagStore } from '../stores/ragStore'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
+// 和 App.vue 保持一致：优先用环境变量里的部署地址，本地开发时才退回 localhost
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+
 // ===== 接收父组件控制 =====
 const props = defineProps({
   open: {
@@ -339,7 +342,6 @@ const previewFile = async (fileName) => {
   previewLoading.value = true
   previewContent.value = ''
   try {
-    const API_BASE = 'http://localhost:8000'
     const { data } = await axios.get(`${API_BASE}/documents/content`, {
       params: { source: fileName }
     })
