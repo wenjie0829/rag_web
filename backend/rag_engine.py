@@ -15,16 +15,18 @@ from chromadb.api.models.Collection import Collection
 from dotenv import load_dotenv
 from openai import OpenAI
 from pypdf import PdfReader
-from sentence_transformers import SentenceTransformer
 from docx import Document as DocxDocument
 
 load_dotenv()
 
-# ===== 使用本地 Embedding 模型（稳定可靠） =====
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-base-zh-v1.5")
+# ===== 使用智谱 Embedding API（不再本地加载模型，省内存） =====
+ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "embedding-3")
+EMBEDDING_DIMENSIONS = int(os.getenv("EMBEDDING_DIMENSIONS", "1024"))
+EMBEDDING_BATCH_SIZE = 25
+
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEFAULT_TOP_K = max(1, int(os.getenv("RAG_TOP_K", "8")))
-QUERY_INSTRUCTION = "为这个句子生成表示以用于检索相关文章："
 
 
 @dataclass
@@ -84,7 +86,7 @@ class RAGEngine:
     def __init__(
         self,
         persist_directory: str | Path | None = None,
-        collection_name: str = "rag_documents_bge_zh_v1",
+        collection_name: str = "rag_documents_zhipu_v1",
     ) -> None:
         database_path = Path(
             persist_directory
@@ -96,44 +98,32 @@ class RAGEngine:
             name=collection_name,
             metadata={"hnsw:space": "cosine"},
         )
-        self._embedder: SentenceTransformer | None = None
-        self._migrate_legacy_minilm_documents(collection_name)
+        self._embed_client: OpenAI | None = None
 
     @property
-    def embedder(self) -> SentenceTransformer:
-        """Load the embedding model only when it is first needed."""
-        if self._embedder is None:
-            self._embedder = SentenceTransformer(EMBEDDING_MODEL)
-        return self._embedder
+    def embed_client(self) -> OpenAI:
+        """Lazily create the Zhipu embedding client (OpenAI-compatible endpoint)."""
+        if self._embed_client is None:
+            api_key = os.getenv("ZHIPU_API_KEY")
+            if not api_key:
+                raise ValueError("请设置 ZHIPU_API_KEY 环境变量")
+            self._embed_client = OpenAI(api_key=api_key, base_url=ZHIPU_BASE_URL)
+        return self._embed_client
 
-    def _migrate_legacy_minilm_documents(self, collection_name: str) -> None:
-        """Re-embed the old MiniLM collection once, preserving existing uploads."""
-        if collection_name != "rag_documents_bge_zh_v1" or self._collection.count() > 0:
-            return
-        try:
-            legacy = self._client.get_collection("rag_documents")
-            legacy_data = legacy.get(include=["documents", "metadatas"])
-        except Exception:
-            return
-
-        chunks = [chunk for chunk in legacy_data.get("documents", []) if chunk]
-        if not chunks:
-            return
-        legacy_metadata = legacy_data.get("metadatas", [])
-        metadatas = [
-            {
-                "source": str((legacy_metadata[index] or {}).get("source", "unknown")),
-                "chunk_index": int((legacy_metadata[index] or {}).get("chunk_index", index)),
-            }
-            for index in range(len(chunks))
-        ]
-        embeddings = self.embedder.encode(chunks, normalize_embeddings=True).tolist()
-        self._collection.add(
-            ids=[str(uuid.uuid4()) for _ in chunks],
-            documents=chunks,
-            embeddings=embeddings,
-            metadatas=metadatas,
-        )
+    def _embed_texts(self, texts: list[str]) -> list[list[float]]:
+        """调用智谱 Embedding API，分批把文本转换为向量，避免单次请求过大。"""
+        if not texts:
+            return []
+        embeddings: list[list[float]] = []
+        for start in range(0, len(texts), EMBEDDING_BATCH_SIZE):
+            batch = texts[start:start + EMBEDDING_BATCH_SIZE]
+            response = self.embed_client.embeddings.create(
+                model=EMBEDDING_MODEL,
+                input=batch,
+                dimensions=EMBEDDING_DIMENSIONS,
+            )
+            embeddings.extend(item.embedding for item in response.data)
+        return embeddings
 
     def load_document(self, file_path: str | Path) -> list[str]:
         """Read a TXT, Markdown, PDF, or DOCX file and return paragraph chunks."""
@@ -168,7 +158,7 @@ class RAGEngine:
     def _store_chunks(self, chunks: list[str], source: str) -> None:
         if not chunks:
             return
-        embeddings = self.embedder.encode(chunks, normalize_embeddings=True).tolist()
+        embeddings = self._embed_texts(chunks)
         ids = [str(uuid.uuid4()) for _ in chunks]
         metadatas = [{"source": source, "chunk_index": index} for index in range(len(chunks))]
         self._collection.add(
@@ -213,9 +203,7 @@ class RAGEngine:
         if not query.strip() or self._collection.count() == 0:
             return []
         limit = top_k or DEFAULT_TOP_K
-        query_embedding = self.embedder.encode(
-            [f"{QUERY_INSTRUCTION}{query}"], normalize_embeddings=True
-        ).tolist()
+        query_embedding = self._embed_texts([query])
         results = self._collection.query(
             query_embeddings=query_embedding,
             n_results=min(limit, self._collection.count()),
