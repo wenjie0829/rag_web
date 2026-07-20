@@ -139,19 +139,18 @@
         type="text"
         v-model="trashKeyword"
         placeholder="搜索回收站..."
-        @input="applyTrashFilter"
       />
     </div>
     <div class="trash-tabs">
       <span
         :class="{ active: trashTab === 'files' }"
-        @click="trashTab = 'files'; applyTrashFilter()"
+        @click="trashTab = 'files'"
       >
         文件 ({{ filteredTrashFiles.length }})
       </span>
       <span
         :class="{ active: trashTab === 'messages' }"
-        @click="trashTab = 'messages'; applyTrashFilter()"
+        @click="trashTab = 'messages'"
       >
         问答 ({{ filteredTrashMessages.length }})
       </span>
@@ -202,8 +201,6 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRagStore } from '../stores/ragStore'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-
 
 // ===== 接收父组件控制 =====
 const props = defineProps({
@@ -342,6 +339,7 @@ const previewFile = async (fileName) => {
   previewLoading.value = true
   previewContent.value = ''
   try {
+    const API_BASE = 'http://localhost:8000'
     const { data } = await axios.get(`${API_BASE}/documents/content`, {
       params: { source: fileName }
     })
@@ -400,58 +398,56 @@ const handleClearAll = () => {
 const trashDialogVisible = ref(false)
 const trashTab = ref('files')
 const trashKeyword = ref('')
-const filteredTrashFiles = ref([])
-const filteredTrashMessages = ref([])
 
 const trashCount = computed(() => {
   return store.trash.files.length + store.trash.messages.length
 })
 
+// 改成 computed：只要 store.trash.files / store.trash.messages 或搜索关键词变化，
+// 这两个列表就会自动重新计算，不需要在每个操作之后手动调用"重新过滤"——
+// 无论删除是同步完成还是要等后端接口返回，界面都能自动跟上，不会出现"角标变了、
+// 列表没变"的不同步问题。
+const filteredTrashFiles = computed(() => {
+  const keyword = trashKeyword.value.trim().toLowerCase()
+  if (!keyword) return store.trash.files
+  return store.trash.files.filter(item => item.name.toLowerCase().includes(keyword))
+})
+
+const filteredTrashMessages = computed(() => {
+  const keyword = trashKeyword.value.trim().toLowerCase()
+  if (!keyword) return store.trash.messages
+  return store.trash.messages.filter(item =>
+    item.question.toLowerCase().includes(keyword) ||
+    item.answer.toLowerCase().includes(keyword)
+  )
+})
+
 const openTrashDialog = () => {
   trashDialogVisible.value = true
-  applyTrashFilter()
-}
-
-const applyTrashFilter = () => {
-  const keyword = trashKeyword.value.trim().toLowerCase()
-  filteredTrashFiles.value = store.trash.files.filter(item => {
-    if (!keyword) return true
-    return item.name.toLowerCase().includes(keyword)
-  })
-  filteredTrashMessages.value = store.trash.messages.filter(item => {
-    if (!keyword) return true
-    return item.question.toLowerCase().includes(keyword) ||
-           item.answer.toLowerCase().includes(keyword)
-  })
 }
 
 const handleRestoreFile = (fileId) => {
   store.restoreFile(fileId)
-  applyTrashFilter()
 }
 
 const handleRestoreMessage = (messageId) => {
   store.restoreMessage(messageId)
-  applyTrashFilter()
 }
 
 const handlePermanentDeleteFile = (fileId) => {
   if (confirm('确定要永久删除此文件吗？不可恢复！')) {
     store.permanentDeleteFile(fileId)
-    applyTrashFilter()
   }
 }
 
 const handlePermanentDeleteMessage = (messageId) => {
   if (confirm('确定要永久删除此问答吗？不可恢复！')) {
     store.permanentDeleteMessage(messageId)
-    applyTrashFilter()
   }
 }
 
 const handleEmptyTrash = () => {
   store.emptyTrash()
-  applyTrashFilter()
 }
 
 // ===== 工具函数 =====
