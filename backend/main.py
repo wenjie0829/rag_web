@@ -11,6 +11,7 @@ from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from rag_engine import RAGEngine
 
@@ -103,7 +104,9 @@ async def upload(file: UploadFile = File(...)) -> dict[str, object]:
             print(f"文件已保存到: {temporary_path}")
 
             # 使用完整文件名（含扩展名）作为 source
-            chunk_count = engine.ingest_file(temporary_path, source=filename)
+            # ⚠️ 用 run_in_threadpool 把这个耗时的同步操作（读文件 + 调用 embedding API）
+            # 挪到独立线程执行，避免阻塞事件循环、影响其他并发请求和健康检查
+            chunk_count = await run_in_threadpool(engine.ingest_file, temporary_path, source=filename)
             print(f"索引完成，分块数: {chunk_count}")
 
             return {"message": "文档已添加", "filename": filename, "chunks": chunk_count}

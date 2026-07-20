@@ -111,19 +111,15 @@ class RAGEngine:
         return self._embed_client
 
     def _embed_texts(self, texts: list[str]) -> list[list[float]]:
-        """调用智谱 Embedding API，分批把文本转换为向量，避免单次请求过大。"""
+        """调用智谱 Embedding API，把一批文本（<= EMBEDDING_BATCH_SIZE 条）转换为向量。"""
         if not texts:
             return []
-        embeddings: list[list[float]] = []
-        for start in range(0, len(texts), EMBEDDING_BATCH_SIZE):
-            batch = texts[start:start + EMBEDDING_BATCH_SIZE]
-            response = self.embed_client.embeddings.create(
-                model=EMBEDDING_MODEL,
-                input=batch,
-                dimensions=EMBEDDING_DIMENSIONS,
-            )
-            embeddings.extend(item.embedding for item in response.data)
-        return embeddings
+        response = self.embed_client.embeddings.create(
+            model=EMBEDDING_MODEL,
+            input=texts,
+            dimensions=EMBEDDING_DIMENSIONS,
+        )
+        return [item.embedding for item in response.data]
 
     def load_document(self, file_path: str | Path) -> list[str]:
         """Read a TXT, Markdown, PDF, or DOCX file and return paragraph chunks."""
@@ -156,17 +152,26 @@ class RAGEngine:
         return len(chunks)
 
     def _store_chunks(self, chunks: list[str], source: str) -> None:
+        """按批次调用 embedding API 并立即写入 ChromaDB，避免把整份文档的
+        分块和向量同时攒在内存里——这对几千段落的大部头小说尤其重要。"""
         if not chunks:
             return
-        embeddings = self._embed_texts(chunks)
-        ids = [str(uuid.uuid4()) for _ in chunks]
-        metadatas = [{"source": source, "chunk_index": index} for index in range(len(chunks))]
-        self._collection.add(
-            ids=ids,
-            documents=chunks,
-            embeddings=embeddings,
-            metadatas=metadatas,
-        )
+        total = len(chunks)
+        for start in range(0, total, EMBEDDING_BATCH_SIZE):
+            batch = chunks[start:start + EMBEDDING_BATCH_SIZE]
+            embeddings = self._embed_texts(batch)
+            ids = [str(uuid.uuid4()) for _ in batch]
+            metadatas = [
+                {"source": source, "chunk_index": start + offset}
+                for offset in range(len(batch))
+            ]
+            self._collection.add(
+                ids=ids,
+                documents=batch,
+                embeddings=embeddings,
+                metadatas=metadatas,
+            )
+            print(f"  已索引 {min(start + EMBEDDING_BATCH_SIZE, total)}/{total} 个分块（{source}）")
 
     def list_documents(self) -> list[dict[str, int | str]]:
         """Return the indexed files and their number of stored chunks."""
