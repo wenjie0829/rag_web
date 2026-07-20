@@ -233,18 +233,9 @@ async function loadIndexedDocuments() {
   try {
     const { data } = await axios.get(`${API_BASE}/documents`)
     const docs = data.documents || []
-    
-    // 更新 uploads（用于中间区域显示）
-    uploads.value = docs.map(doc => ({
-      uid: `indexed-${doc.source}`,
-      raw: null,
-      name: doc.source,
-      percentage: 100,
-      status: 'success',
-      detail: `已索引 ${doc.chunks} 个段落`,
-    }))
 
-    // 同步到侧边栏 store（去重）
+    // 只同步到侧边栏 store（去重），不再把已索引文档灌回 uploads 列表——
+    // uploads 只用来展示"本次正在上传/刚上传"的文件，已索引文档一律只在侧边栏展示
     docs.forEach(doc => {
       const exists = store.files.find(f => f.name === doc.source)
       if (!exists) {
