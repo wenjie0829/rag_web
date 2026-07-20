@@ -111,15 +111,28 @@ class RAGEngine:
         return self._embed_client
 
     def _embed_texts(self, texts: list[str]) -> list[list[float]]:
-        """调用智谱 Embedding API，把一批文本（<= EMBEDDING_BATCH_SIZE 条）转换为向量。"""
+        """调用智谱 Embedding API，把文本转换为向量。
+
+        embedding-3 支持批量（一次传一个字符串数组）并且支持自定义
+        dimensions；旧版 embedding-2 只接受单条字符串，不支持批量也不支持
+        dimensions 参数。这里按模型名自动选择调用方式：用 embedding-3 就走
+        批量（更快），否则退回逐条调用（兼容性更好）。
+        """
         if not texts:
             return []
-        response = self.embed_client.embeddings.create(
-            model=EMBEDDING_MODEL,
-            input=texts,
-            dimensions=EMBEDDING_DIMENSIONS,
-        )
-        return [item.embedding for item in response.data]
+        if EMBEDDING_MODEL.startswith("embedding-3"):
+            response = self.embed_client.embeddings.create(
+                model=EMBEDDING_MODEL,
+                input=texts,
+                dimensions=EMBEDDING_DIMENSIONS,
+            )
+            return [item.embedding for item in response.data]
+
+        embeddings: list[list[float]] = []
+        for text in texts:
+            response = self.embed_client.embeddings.create(model=EMBEDDING_MODEL, input=text)
+            embeddings.append(response.data[0].embedding)
+        return embeddings
 
     def load_document(self, file_path: str | Path) -> list[str]:
         """Read a TXT, Markdown, PDF, or DOCX file and return paragraph chunks."""
